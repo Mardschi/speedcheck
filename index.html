@@ -1,806 +1,1000 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SpeedCheck — Network Speed Test</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --bg: #0a0c10;
-    --surface: #11141a;
-    --border: #1e2330;
-    --text: #e8eaf0;
-    --muted: #5a6070;
-    --accent: #00e5ff;
-    --accent2: #7c3aed;
-    --green: #00e676;
-    --orange: #ff9100;
-    --red: #ff3d57;
-    --glow: rgba(0, 229, 255, 0.15);
-  }
-
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'DM Mono', monospace;
-    font-size: 14px;
-    overflow-x: hidden;
-  }
-
-  /* Animated grid background */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
-    background-size: 40px 40px;
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  body::after {
-    content: '';
-    position: fixed;
-    top: -30%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 700px;
-    height: 700px;
-    background: radial-gradient(circle, rgba(0,229,255,0.05) 0%, transparent 65%);
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  .app {
-    position: relative;
-    z-index: 1;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 40px 20px 60px;
-  }
-
-  header {
-    text-align: center;
-    margin-bottom: 52px;
-  }
-
-  .logo {
-    font-family: 'Syne', sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.35em;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin-bottom: 8px;
-    opacity: 0.8;
-  }
-
-  h1 {
-    font-family: 'Syne', sans-serif;
-    font-size: clamp(2rem, 5vw, 3.2rem);
-    font-weight: 800;
-    line-height: 1;
-    letter-spacing: -0.02em;
-    background: linear-gradient(135deg, #fff 40%, var(--accent) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .subtitle {
-    margin-top: 12px;
-    color: var(--muted);
-    font-size: 13px;
-    letter-spacing: 0.05em;
-  }
-
-  /* Gauge */
-  .gauge-wrap {
-    position: relative;
-    width: 300px;
-    height: 300px;
-    margin: 0 auto 40px;
-  }
-
-  .gauge-svg {
-    width: 100%;
-    height: 100%;
-    transform: rotate(-220deg);
-  }
-
-  .gauge-track {
-    fill: none;
-    stroke: var(--border);
-    stroke-width: 14;
-    stroke-linecap: round;
-  }
-
-  .gauge-fill {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 14;
-    stroke-linecap: round;
-    stroke-dasharray: 330;
-    stroke-dashoffset: 330;
-    transition: stroke-dashoffset 0.15s ease, stroke 0.3s ease;
-    filter: drop-shadow(0 0 8px var(--accent));
-  }
-
-  .gauge-center {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    transform: rotate(0deg);
-  }
-
-  .gauge-value {
-    font-family: 'Syne', sans-serif;
-    font-size: 3.8rem;
-    font-weight: 800;
-    line-height: 1;
-    color: var(--text);
-    letter-spacing: -0.03em;
-    transition: color 0.3s;
-  }
-
-  .gauge-unit {
-    font-size: 11px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-top: 4px;
-  }
-
-  .gauge-label {
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    color: var(--accent);
-    text-transform: uppercase;
-    margin-top: 8px;
-    font-weight: 500;
-    min-height: 14px;
-  }
-
-  /* Tick marks on gauge */
-  .gauge-ticks {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  /* Stats grid */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    width: 100%;
-    max-width: 520px;
-    margin-bottom: 32px;
-  }
-
-  .stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 18px 14px;
-    text-align: center;
-    transition: border-color 0.3s, box-shadow 0.3s;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .stat-card.active {
-    border-color: var(--accent);
-    box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
-  }
-
-  .stat-card.done {
-    border-color: var(--green);
-    box-shadow: 0 0 20px rgba(0, 230, 118, 0.08);
-  }
-
-  .stat-label {
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-
-  .stat-value {
-    font-family: 'Syne', sans-serif;
-    font-size: 1.6rem;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1;
-    transition: color 0.3s;
-  }
-
-  .stat-value.green { color: var(--green); }
-  .stat-value.orange { color: var(--orange); }
-
-  .stat-sub {
-    font-size: 10px;
-    color: var(--muted);
-    margin-top: 4px;
-    letter-spacing: 0.1em;
-  }
-
-  /* Progress bar */
-  .progress-wrap {
-    width: 100%;
-    max-width: 520px;
-    margin-bottom: 32px;
-    display: none;
-  }
-
-  .progress-wrap.visible { display: block; }
-
-  .progress-label {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: var(--muted);
-    margin-bottom: 8px;
-    letter-spacing: 0.08em;
-  }
-
-  .progress-bar {
-    height: 4px;
-    background: var(--border);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--accent2), var(--accent));
-    border-radius: 4px;
-    width: 0%;
-    transition: width 0.4s ease;
-    box-shadow: 0 0 8px var(--accent);
-  }
-
-  /* Start button */
-  .btn-start {
-    position: relative;
-    background: transparent;
-    border: 2px solid var(--accent);
-    color: var(--accent);
-    font-family: 'Syne', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    padding: 18px 56px;
-    border-radius: 100px;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 0 30px rgba(0,229,255,0.1), inset 0 0 30px rgba(0,229,255,0.04);
-    overflow: hidden;
-    margin-bottom: 40px;
-  }
-
-  .btn-start::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: var(--accent);
-    opacity: 0;
-    transition: opacity 0.2s;
-    border-radius: inherit;
-  }
-
-  .btn-start:hover::before { opacity: 0.08; }
-  .btn-start:hover {
-    box-shadow: 0 0 50px rgba(0,229,255,0.25), inset 0 0 30px rgba(0,229,255,0.08);
-    transform: translateY(-1px);
-  }
-
-  .btn-start:active { transform: translateY(0); }
-
-  .btn-start span { position: relative; z-index: 1; }
-
-  .btn-start:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  /* Log */
-  .log-wrap {
-    width: 100%;
-    max-width: 520px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    overflow: hidden;
-    display: none;
-  }
-
-  .log-wrap.visible { display: block; }
-
-  .log-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .log-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--green);
-    animation: pulse 1.4s ease infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-  }
-
-  .log-body {
-    padding: 12px 16px;
-    max-height: 140px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .log-line {
-    font-size: 12px;
-    color: var(--muted);
-    display: flex;
-    gap: 10px;
-    animation: fadeIn 0.3s ease;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  .log-time { color: var(--accent2); flex-shrink: 0; }
-  .log-msg  { color: var(--text); }
-  .log-val  { color: var(--accent); margin-left: auto; flex-shrink: 0; }
-
-  /* IP info bar */
-  .info-bar {
-    display: flex;
-    gap: 24px;
-    flex-wrap: wrap;
-    justify-content: center;
-    margin-top: 32px;
-    padding: 16px 24px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    width: 100%;
-    max-width: 520px;
-  }
-
-  .info-item { text-align: center; }
-  .info-label { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
-  .info-val   { font-size: 13px; color: var(--text); }
-
-  footer {
-    margin-top: 40px;
-    color: var(--muted);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-align: center;
-    opacity: 0.6;
-  }
-
-  footer a { color: inherit; }
-
-  /* Animations for gauge needle sweep */
-  @keyframes sweep {
-    from { stroke-dashoffset: 330; }
-  }
-
-  .ripple {
-    position: absolute;
-    inset: -20px;
-    border: 1px solid var(--accent);
-    border-radius: 50%;
-    opacity: 0;
-    animation: rippleOut 1.5s ease-out infinite;
-  }
-
-  .ripple:nth-child(2) { animation-delay: 0.5s; }
-  .ripple:nth-child(3) { animation-delay: 1s; }
-
-  @keyframes rippleOut {
-    0% { transform: scale(0.85); opacity: 0.4; }
-    100% { transform: scale(1.1); opacity: 0; }
-  }
-
-  .ripples {
-    display: none;
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  .testing .ripples { display: block; }
-</style>
-</head>
-<body>
-<div class="app">
-  <header>
-    <div class="logo">SpeedCheck</div>
-    <h1>Network Speed Test</h1>
-    <p class="subtitle">Free. No account. No ads. No data sold.</p>
-  </header>
-
-  <div class="gauge-wrap" id="gaugeWrap">
-    <svg class="gauge-svg" viewBox="0 0 120 120">
-      <circle class="gauge-track" cx="60" cy="60" r="52.5"
-        stroke-dasharray="330" stroke-dashoffset="0"/>
-      <circle class="gauge-fill" id="gaugeFill" cx="60" cy="60" r="52.5"/>
-    </svg>
-    <div class="gauge-center">
-      <div class="gauge-value" id="gaugeValue">—</div>
-      <div class="gauge-unit">Mbps</div>
-      <div class="gauge-label" id="gaugeLabel">Ready</div>
-    </div>
-    <div class="ripples">
-      <div class="ripple"></div>
-      <div class="ripple"></div>
-      <div class="ripple"></div>
-    </div>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-card" id="cardPing">
-      <div class="stat-label">Ping</div>
-      <div class="stat-value" id="valPing">—</div>
-      <div class="stat-sub">ms</div>
-    </div>
-    <div class="stat-card" id="cardDown">
-      <div class="stat-label">Download</div>
-      <div class="stat-value" id="valDown">—</div>
-      <div class="stat-sub">Mbps</div>
-    </div>
-    <div class="stat-card" id="cardUp">
-      <div class="stat-label">Upload</div>
-      <div class="stat-value" id="valUp">—</div>
-      <div class="stat-sub">Mbps</div>
-    </div>
-  </div>
-
-  <div class="progress-wrap" id="progressWrap">
-    <div class="progress-label">
-      <span id="progressLabel">Initializing…</span>
-      <span id="progressPct">0%</span>
-    </div>
-    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-  </div>
-
-  <button class="btn-start" id="btnStart" onclick="runTest()">
-    <span id="btnLabel">Start Test</span>
-  </button>
-
-  <div class="log-wrap" id="logWrap">
-    <div class="log-header">
-      <div class="log-dot"></div>
-      Test Log
-    </div>
-    <div class="log-body" id="logBody"></div>
-  </div>
-
-  <div class="info-bar" id="infoBar">
-    <div class="info-item">
-      <div class="info-label">IP Address</div>
-      <div class="info-val" id="infoIp">Detecting…</div>
-    </div>
-    <div class="info-item">
-      <div class="info-label">ISP</div>
-      <div class="info-val" id="infoIsp">—</div>
-    </div>
-    <div class="info-item">
-      <div class="info-label">Location</div>
-      <div class="info-val" id="infoLoc">—</div>
-    </div>
-  </div>
-
-  <footer>
-    SpeedCheck — open, free, privacy-first speed testing<br>
-    <small>Tests run directly from your browser. No data is stored or sold.</small>
-  </footer>
-</div>
-
-<script>
-let running = false;
-
-const API = 'https://speedapi.pixelpeakmc.com';
-
-const gaugeFill   = document.getElementById('gaugeFill');
-const gaugeValue  = document.getElementById('gaugeValue');
-const gaugeLabel  = document.getElementById('gaugeLabel');
-const gaugeWrap   = document.getElementById('gaugeWrap');
-const btnStart    = document.getElementById('btnStart');
-const btnLabel    = document.getElementById('btnLabel');
-const progressWrap  = document.getElementById('progressWrap');
-const progressFill  = document.getElementById('progressFill');
-const progressLabel = document.getElementById('progressLabel');
-const progressPctEl = document.getElementById('progressPct');
-const logWrap     = document.getElementById('logWrap');
-const logBody     = document.getElementById('logBody');
-const cardPing    = document.getElementById('cardPing');
-const cardDown    = document.getElementById('cardDown');
-const cardUp      = document.getElementById('cardUp');
-
-function setProgress(pct, label) {
-  progressFill.style.width = Math.min(pct, 100) + '%';
-  progressLabel.textContent = label;
-  progressPctEl.textContent = Math.round(Math.min(pct, 100)) + '%';
-}
-
-let _lastGauge = 0;
-function setGauge(mbps, force) {
-  const now = performance.now();
-  if (!force && now - _lastGauge < 250) return;
-  _lastGauge = now;
-  gaugeFill.style.strokeDashoffset = 330 - Math.min(mbps/200,1)*330;
-  gaugeFill.style.stroke = mbps>100?'var(--green)':mbps>25?'var(--accent)':mbps>5?'var(--orange)':'var(--red)';
-  gaugeValue.textContent = mbps >= 100 ? Math.round(mbps) : mbps.toFixed(1);
-}
-
-function log(msg, val) {
-  const ts = new Date().toTimeString().slice(0,8);
-  const el = document.createElement('div');
-  el.className = 'log-line';
-  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${msg}</span>${val?`<span class="log-val">${val}</span>`:''}`;
-  logBody.appendChild(el);
-  logBody.scrollTop = logBody.scrollHeight;
-}
-
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-// ── IP info ────────────────────────────────────────────────────────────────
-async function fetchIpInfo() {
-  try {
-    // Cloudflare's trace endpoint — always available, no API key, no CORS issues
-    const text = await fetch('https://cloudflare.com/cdn-cgi/trace').then(r => r.text());
-    const data = Object.fromEntries(text.trim().split('\n').map(l => l.split('=')));
-    document.getElementById('infoIp').textContent  = data.ip || '—';
-    document.getElementById('infoLoc').textContent = data.loc || '—';
-    // ISP lookup via worker (avoids third-party CORS issues)
-    try {
-      const isp = await fetch('https://speedapi.pixelpeakmc.com/isp').then(r => r.text());
-      document.getElementById('infoIsp').textContent = isp || '—';
-    } catch { document.getElementById('infoIsp').textContent = '—'; }
-  } catch {
-    document.getElementById('infoIp').textContent = 'Unavailable';
-  }
-}
-
-// ── Ping ───────────────────────────────────────────────────────────────────
-// Hit /ping on our Worker (returns empty 200 instantly).
-// Warmup first to establish TCP+TLS, then measure 14 samples, trim outliers.
-async function measurePing() {
-  const url = API + '/ping';
-  try { await fetch(url + '?w=1', { cache:'no-store' }); } catch {}
-  await sleep(80);
-
-  const times = [];
-  for (let i = 0; i < 14; i++) {
-    const t0 = performance.now();
-    try {
-      await fetch(`${url}?i=${i}&r=${Math.random()}`, { cache:'no-store' });
-      times.push(performance.now() - t0);
-    } catch {}
-    await sleep(30);
-  }
-  if (!times.length) return null;
-  times.sort((a,b)=>a-b);
-  const trimmed = times.slice(1, -2);
-  return Math.round(trimmed.reduce((a,b)=>a+b,0) / trimmed.length);
-}
-
-// ── Download ───────────────────────────────────────────────────────────────
-// GET /download?bytes=N — Worker streams N bytes of random data.
-// 3 parallel streams, skip first 500ms (TCP slow-start), report P75.
-async function measureDownload(onProgress) {
-  const BYTES = 25_000_000;
-  const STREAMS = 3;
-  const allSamples = [];
-
-  // Warmup
-  try { await fetch(`${API}/download?bytes=500000&w=1`, { cache:'no-store', signal: AbortSignal.timeout(6000) }); } catch {}
-
-  const doStream = async (idx) => {
-    const url = `${API}/download?bytes=${BYTES}&s=${idx}&r=${Math.random()}`;
-    const t0 = performance.now();
-    let received = 0;
-    try {
-      const res = await fetch(url, { cache:'no-store', signal: AbortSignal.timeout(40000) });
-      const reader = res.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        received += value.length;
-        const elapsed = (performance.now() - t0) / 1000;
-        if (elapsed > 0.5 && received > 65536) {
-          const mbps = (received * 8) / (elapsed * 1e6);
-          allSamples.push(mbps);
-          onProgress(mbps);
-        }
-      }
-    } catch {}
-  };
-
-  await Promise.all(Array.from({length:STREAMS}, (_,i) => doStream(i)));
-  if (!allSamples.length) return 0;
-  allSamples.sort((a,b)=>a-b);
-  return allSamples[Math.floor(allSamples.length * 0.75)];
-}
-
-// ── Upload ─────────────────────────────────────────────────────────────────
-// POST /upload — Worker reads and discards the body, returns 200.
-// 3 parallel XHR streams, skip first 300ms, report P75.
-async function measureUpload(onProgress) {
-  const SIZE = 6 * 1024 * 1024;
-  const STREAMS = 3;
-
-  const buf = new Uint8Array(SIZE);
-  for (let i = 0; i < SIZE; i += 65536) crypto.getRandomValues(buf.subarray(i, Math.min(i+65536, SIZE)));
-  const blob = new Blob([buf], { type:'application/octet-stream' });
-
-  // Warmup
-  await new Promise(resolve => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API}/upload?w=1`);
-    xhr.onload = xhr.onerror = xhr.ontimeout = resolve;
-    xhr.timeout = 6000;
-    xhr.send(new Blob([buf.subarray(0, 128*1024)]));
-  });
-
-  const allSamples = [];
-
-  const doUpload = (idx) => new Promise(resolve => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API}/upload?s=${idx}&r=${Math.random()}`);
-    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-    let t0 = null;
-    xhr.upload.onprogress = e => {
-      if (t0 === null && e.loaded > 0) t0 = performance.now();
-      if (!t0) return;
-      const elapsed = (performance.now() - t0) / 1000;
-      if (elapsed < 0.3 || e.loaded < 32768) return;
-      const mbps = (e.loaded * 8) / (elapsed * 1e6);
-      allSamples.push(mbps);
-      onProgress(mbps);
-    };
-    xhr.onload = xhr.onerror = xhr.ontimeout = resolve;
-    xhr.timeout = 35000;
-    xhr.send(blob);
-  });
-
-  await Promise.all(Array.from({length:STREAMS}, (_,i) => doUpload(i)));
-  if (!allSamples.length) return 0;
-  allSamples.sort((a,b)=>a-b);
-  return allSamples[Math.floor(allSamples.length * 0.75)];
-}
-
-// ── Main ───────────────────────────────────────────────────────────────────
-async function runTest() {
-  if (running) return;
-  running = true;
-
-  logBody.innerHTML = '';
-  logWrap.classList.add('visible');
-  progressWrap.classList.add('visible');
-  gaugeWrap.classList.add('testing');
-  btnStart.disabled = true;
-  btnLabel.textContent = 'Testing…';
-  gaugeFill.style.strokeDashoffset = 330;
-  gaugeValue.textContent = '—';
-  gaugeLabel.textContent = 'Starting';
-  [cardPing, cardDown, cardUp].forEach(c => c.className = 'stat-card');
-  ['valPing','valDown','valUp'].forEach(id => {
-    const el = document.getElementById(id);
-    el.textContent = '—'; el.className = 'stat-value'; el.style.color = '';
-  });
-
-  try {
-    setProgress(3, 'Detecting location…');
-    await fetchIpInfo();
-
-    // Ping
-    setProgress(10, 'Measuring latency…');
-    gaugeLabel.textContent = 'Ping';
-    cardPing.classList.add('active');
-    log('Measuring latency…');
-    const ping = await measurePing();
-    setProgress(22, 'Latency done.');
-    const pingEl = document.getElementById('valPing');
-    pingEl.textContent = ping ?? '?';
-    if (ping !== null) {
-      if (ping < 25) pingEl.classList.add('green');
-      else if (ping > 80) pingEl.style.color = 'var(--orange)';
-    }
-    cardPing.classList.remove('active'); cardPing.classList.add('done');
-    log('Latency complete', ping !== null ? `${ping} ms` : '?');
-    await sleep(150);
-
-    // Download
-    gaugeLabel.textContent = 'Download';
-    cardDown.classList.add('active');
-    log('Downloading… (3 parallel streams, 25 MB each)');
-    let dlPct = 22;
-    const download = await measureDownload(mbps => {
-      dlPct = Math.min(dlPct + 0.3, 63);
-      setProgress(dlPct, `Downloading… ${mbps.toFixed(1)} Mbps`);
-      setGauge(mbps);
-    });
-    setProgress(65, 'Download complete.');
-    setGauge(download, true);
-    const downEl = document.getElementById('valDown');
-    downEl.textContent = download >= 100 ? Math.round(download) : download.toFixed(1);
-    if (download > 20) downEl.classList.add('green');
-    cardDown.classList.remove('active'); cardDown.classList.add('done');
-    log('Download complete', `${download.toFixed(1)} Mbps`);
-    await sleep(150);
-
-    // Upload
-    gaugeLabel.textContent = 'Upload';
-    cardUp.classList.add('active');
-    gaugeFill.style.strokeDashoffset = 330;
-    gaugeValue.textContent = '—';
-    log('Uploading… (3 parallel streams, 6 MB each)');
-    let ulPct = 65;
-    const upload = await measureUpload(mbps => {
-      ulPct = Math.min(ulPct + 0.25, 98);
-      setProgress(ulPct, `Uploading… ${mbps.toFixed(1)} Mbps`);
-      setGauge(mbps);
-    });
-    setProgress(100, 'All done!');
-    setGauge(upload, true);
-    const upEl = document.getElementById('valUp');
-    upEl.textContent = upload >= 100 ? Math.round(upload) : upload.toFixed(1);
-    if (upload > 5) upEl.classList.add('green');
-    cardUp.classList.remove('active'); cardUp.classList.add('done');
-    log('Upload complete', `${upload.toFixed(1)} Mbps`);
-
-    gaugeLabel.textContent = 'Complete ✓';
-    log('─── Test finished ───');
-    await sleep(800);
-    setGauge(download, true);
-    gaugeValue.textContent = download >= 100 ? Math.round(download) : download.toFixed(1);
-
-  } catch (err) {
-    gaugeLabel.textContent = 'Error';
-    log('Error: ' + err.message);
-    console.error(err);
-  }
-
-  gaugeWrap.classList.remove('testing');
-  btnStart.disabled = false;
-  btnLabel.textContent = 'Run Again';
-  running = false;
-}
-
-fetchIpInfo();
-</script>
-</body>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>SpeedCheck — Network Speed Test</title>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            :root {
+                --bg: #0a0c10;
+                --surface: #11141a;
+                --border: #1e2330;
+                --text: #e8eaf0;
+                --muted: #5a6070;
+                --accent: #00e5ff;
+                --accent2: #7c3aed;
+                --green: #00e676;
+                --orange: #ff9100;
+                --red: #ff3d57;
+                --glow: rgba(0, 229, 255, 0.15);
+            }
+
+            html,
+            body {
+                height: 100%;
+                background: var(--bg);
+                color: var(--text);
+                font-family: "DM Mono", monospace;
+                font-size: 14px;
+                overflow-x: hidden;
+            }
+
+            /* Animated grid background */
+            body::before {
+                content: "";
+                position: fixed;
+                inset: 0;
+                background-image:
+                    linear-gradient(
+                        rgba(0, 229, 255, 0.03) 1px,
+                        transparent 1px
+                    ),
+                    linear-gradient(
+                        90deg,
+                        rgba(0, 229, 255, 0.03) 1px,
+                        transparent 1px
+                    );
+                background-size: 40px 40px;
+                pointer-events: none;
+                z-index: 0;
+            }
+
+            body::after {
+                content: "";
+                position: fixed;
+                top: -30%;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 700px;
+                height: 700px;
+                background: radial-gradient(
+                    circle,
+                    rgba(0, 229, 255, 0.05) 0%,
+                    transparent 65%
+                );
+                pointer-events: none;
+                z-index: 0;
+            }
+
+            .app {
+                position: relative;
+                z-index: 1;
+                min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding: 40px 20px 60px;
+            }
+
+            header {
+                text-align: center;
+                margin-bottom: 52px;
+            }
+
+            .logo {
+                font-family: "Syne", sans-serif;
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.35em;
+                text-transform: uppercase;
+                color: var(--accent);
+                margin-bottom: 8px;
+                opacity: 0.8;
+            }
+
+            h1 {
+                font-family: "Syne", sans-serif;
+                font-size: clamp(2rem, 5vw, 3.2rem);
+                font-weight: 800;
+                line-height: 1;
+                letter-spacing: -0.02em;
+                background: linear-gradient(
+                    135deg,
+                    #fff 40%,
+                    var(--accent) 100%
+                );
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+
+            .subtitle {
+                margin-top: 12px;
+                color: var(--muted);
+                font-size: 13px;
+                letter-spacing: 0.05em;
+            }
+
+            /* Gauge */
+            .gauge-wrap {
+                position: relative;
+                width: 300px;
+                height: 300px;
+                margin: 0 auto 40px;
+            }
+
+            .gauge-svg {
+                width: 100%;
+                height: 100%;
+                transform: rotate(-220deg);
+            }
+
+            .gauge-track {
+                fill: none;
+                stroke: var(--border);
+                stroke-width: 14;
+                stroke-linecap: round;
+            }
+
+            .gauge-fill {
+                fill: none;
+                stroke: var(--accent);
+                stroke-width: 14;
+                stroke-linecap: round;
+                stroke-dasharray: 330;
+                stroke-dashoffset: 330;
+                transition:
+                    stroke-dashoffset 0.15s ease,
+                    stroke 0.3s ease;
+                filter: drop-shadow(0 0 8px var(--accent));
+            }
+
+            .gauge-center {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                transform: rotate(0deg);
+            }
+
+            .gauge-value {
+                font-family: "Syne", sans-serif;
+                font-size: 3.8rem;
+                font-weight: 800;
+                line-height: 1;
+                color: var(--text);
+                letter-spacing: -0.03em;
+                transition: color 0.3s;
+            }
+
+            .gauge-unit {
+                font-size: 11px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-top: 4px;
+            }
+
+            .gauge-label {
+                font-size: 10px;
+                letter-spacing: 0.15em;
+                color: var(--accent);
+                text-transform: uppercase;
+                margin-top: 8px;
+                font-weight: 500;
+                min-height: 14px;
+            }
+
+            /* Tick marks on gauge */
+            .gauge-ticks {
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+            }
+
+            /* Stats grid */
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+                width: 100%;
+                max-width: 520px;
+                margin-bottom: 32px;
+            }
+
+            .stat-card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                padding: 18px 14px;
+                text-align: center;
+                transition:
+                    border-color 0.3s,
+                    box-shadow 0.3s;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .stat-card.active {
+                border-color: var(--accent);
+                box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
+            }
+
+            .stat-card.done {
+                border-color: var(--green);
+                box-shadow: 0 0 20px rgba(0, 230, 118, 0.08);
+            }
+
+            .stat-label {
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 8px;
+            }
+
+            .stat-value {
+                font-family: "Syne", sans-serif;
+                font-size: 1.6rem;
+                font-weight: 700;
+                color: var(--text);
+                line-height: 1;
+                transition: color 0.3s;
+            }
+
+            .stat-value.green {
+                color: var(--green);
+            }
+            .stat-value.orange {
+                color: var(--orange);
+            }
+
+            .stat-sub {
+                font-size: 10px;
+                color: var(--muted);
+                margin-top: 4px;
+                letter-spacing: 0.1em;
+            }
+
+            /* Progress bar */
+            .progress-wrap {
+                width: 100%;
+                max-width: 520px;
+                margin-bottom: 32px;
+                display: none;
+            }
+
+            .progress-wrap.visible {
+                display: block;
+            }
+
+            .progress-label {
+                display: flex;
+                justify-content: space-between;
+                font-size: 11px;
+                color: var(--muted);
+                margin-bottom: 8px;
+                letter-spacing: 0.08em;
+            }
+
+            .progress-bar {
+                height: 4px;
+                background: var(--border);
+                border-radius: 4px;
+                overflow: hidden;
+            }
+
+            .progress-fill {
+                height: 100%;
+                background: linear-gradient(
+                    90deg,
+                    var(--accent2),
+                    var(--accent)
+                );
+                border-radius: 4px;
+                width: 0%;
+                transition: width 0.4s ease;
+                box-shadow: 0 0 8px var(--accent);
+            }
+
+            /* Start button */
+            .btn-start {
+                position: relative;
+                background: transparent;
+                border: 2px solid var(--accent);
+                color: var(--accent);
+                font-family: "Syne", sans-serif;
+                font-size: 15px;
+                font-weight: 700;
+                letter-spacing: 0.15em;
+                text-transform: uppercase;
+                padding: 18px 56px;
+                border-radius: 100px;
+                cursor: pointer;
+                transition: all 0.2s;
+                box-shadow:
+                    0 0 30px rgba(0, 229, 255, 0.1),
+                    inset 0 0 30px rgba(0, 229, 255, 0.04);
+                overflow: hidden;
+                margin-bottom: 40px;
+            }
+
+            .btn-start::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background: var(--accent);
+                opacity: 0;
+                transition: opacity 0.2s;
+                border-radius: inherit;
+            }
+
+            .btn-start:hover::before {
+                opacity: 0.08;
+            }
+            .btn-start:hover {
+                box-shadow:
+                    0 0 50px rgba(0, 229, 255, 0.25),
+                    inset 0 0 30px rgba(0, 229, 255, 0.08);
+                transform: translateY(-1px);
+            }
+
+            .btn-start:active {
+                transform: translateY(0);
+            }
+
+            .btn-start span {
+                position: relative;
+                z-index: 1;
+            }
+
+            .btn-start:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+            /* Log */
+            .log-wrap {
+                width: 100%;
+                max-width: 520px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                overflow: hidden;
+                display: none;
+            }
+
+            .log-wrap.visible {
+                display: block;
+            }
+
+            .log-header {
+                padding: 12px 16px;
+                border-bottom: 1px solid var(--border);
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--muted);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .log-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: var(--green);
+                animation: pulse 1.4s ease infinite;
+            }
+
+            @keyframes pulse {
+                0%,
+                100% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0.3;
+                }
+            }
+
+            .log-body {
+                padding: 12px 16px;
+                max-height: 140px;
+                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .log-line {
+                font-size: 12px;
+                color: var(--muted);
+                display: flex;
+                gap: 10px;
+                animation: fadeIn 0.3s ease;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(4px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            .log-time {
+                color: var(--accent2);
+                flex-shrink: 0;
+            }
+            .log-msg {
+                color: var(--text);
+            }
+            .log-val {
+                color: var(--accent);
+                margin-left: auto;
+                flex-shrink: 0;
+            }
+
+            /* IP info bar */
+            .info-bar {
+                display: flex;
+                gap: 24px;
+                flex-wrap: wrap;
+                justify-content: center;
+                margin-top: 32px;
+                padding: 16px 24px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 14px;
+                width: 100%;
+                max-width: 520px;
+            }
+
+            .info-item {
+                text-align: center;
+            }
+            .info-label {
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 4px;
+            }
+            .info-val {
+                font-size: 13px;
+                color: var(--text);
+            }
+
+            footer {
+                margin-top: 40px;
+                color: var(--muted);
+                font-size: 11px;
+                letter-spacing: 0.08em;
+                text-align: center;
+                opacity: 0.6;
+            }
+
+            footer a {
+                color: inherit;
+            }
+
+            /* Animations for gauge needle sweep */
+            @keyframes sweep {
+                from {
+                    stroke-dashoffset: 330;
+                }
+            }
+
+            .ripple {
+                position: absolute;
+                inset: -20px;
+                border: 1px solid var(--accent);
+                border-radius: 50%;
+                opacity: 0;
+                animation: rippleOut 1.5s ease-out infinite;
+            }
+
+            .ripple:nth-child(2) {
+                animation-delay: 0.5s;
+            }
+            .ripple:nth-child(3) {
+                animation-delay: 1s;
+            }
+
+            @keyframes rippleOut {
+                0% {
+                    transform: scale(0.85);
+                    opacity: 0.4;
+                }
+                100% {
+                    transform: scale(1.1);
+                    opacity: 0;
+                }
+            }
+
+            .ripples {
+                display: none;
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+            }
+
+            .testing .ripples {
+                display: block;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="app">
+            <header>
+                <div class="logo">SpeedCheck</div>
+                <h1>Network Speed Test</h1>
+                <p class="subtitle">Free. No account. No ads. No data sold.</p>
+            </header>
+
+            <div class="gauge-wrap" id="gaugeWrap">
+                <svg class="gauge-svg" viewBox="0 0 120 120">
+                    <circle
+                        class="gauge-track"
+                        cx="60"
+                        cy="60"
+                        r="52.5"
+                        stroke-dasharray="330"
+                        stroke-dashoffset="0"
+                    />
+                    <circle
+                        class="gauge-fill"
+                        id="gaugeFill"
+                        cx="60"
+                        cy="60"
+                        r="52.5"
+                    />
+                </svg>
+                <div class="gauge-center">
+                    <div class="gauge-value" id="gaugeValue">—</div>
+                    <div class="gauge-unit">Mbps</div>
+                    <div class="gauge-label" id="gaugeLabel">Ready</div>
+                </div>
+                <div class="ripples">
+                    <div class="ripple"></div>
+                    <div class="ripple"></div>
+                    <div class="ripple"></div>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card" id="cardPing">
+                    <div class="stat-label">Ping</div>
+                    <div class="stat-value" id="valPing">—</div>
+                    <div class="stat-sub">ms</div>
+                </div>
+                <div class="stat-card" id="cardDown">
+                    <div class="stat-label">Download</div>
+                    <div class="stat-value" id="valDown">—</div>
+                    <div class="stat-sub">Mbps</div>
+                </div>
+                <div class="stat-card" id="cardUp">
+                    <div class="stat-label">Upload</div>
+                    <div class="stat-value" id="valUp">—</div>
+                    <div class="stat-sub">Mbps</div>
+                </div>
+            </div>
+
+            <div class="progress-wrap" id="progressWrap">
+                <div class="progress-label">
+                    <span id="progressLabel">Initializing…</span>
+                    <span id="progressPct">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+
+            <button class="btn-start" id="btnStart" onclick="runTest()">
+                <span id="btnLabel">Start Test</span>
+            </button>
+
+            <div class="log-wrap" id="logWrap">
+                <div class="log-header">
+                    <div class="log-dot"></div>
+                    Test Log
+                </div>
+                <div class="log-body" id="logBody"></div>
+            </div>
+
+            <div class="info-bar" id="infoBar">
+                <div class="info-item">
+                    <div class="info-label">IP Address</div>
+                    <div class="info-val" id="infoIp">Detecting…</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">ISP</div>
+                    <div class="info-val" id="infoIsp">—</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Location</div>
+                    <div class="info-val" id="infoLoc">—</div>
+                </div>
+            </div>
+
+            <footer>
+                SpeedCheck — open, free, privacy-first speed testing<br />
+                <small
+                    >Tests run directly from your browser. No data is stored or
+                    sold.</small
+                >
+            </footer>
+        </div>
+
+        <script>
+            let running = false;
+
+            const API = "https://speedapi.pixelpeakmc.com";
+
+            const gaugeFill = document.getElementById("gaugeFill");
+            const gaugeValue = document.getElementById("gaugeValue");
+            const gaugeLabel = document.getElementById("gaugeLabel");
+            const gaugeWrap = document.getElementById("gaugeWrap");
+            const btnStart = document.getElementById("btnStart");
+            const btnLabel = document.getElementById("btnLabel");
+            const progressWrap = document.getElementById("progressWrap");
+            const progressFill = document.getElementById("progressFill");
+            const progressLabel = document.getElementById("progressLabel");
+            const progressPctEl = document.getElementById("progressPct");
+            const logWrap = document.getElementById("logWrap");
+            const logBody = document.getElementById("logBody");
+            const cardPing = document.getElementById("cardPing");
+            const cardDown = document.getElementById("cardDown");
+            const cardUp = document.getElementById("cardUp");
+
+            function setProgress(pct, label) {
+                progressFill.style.width = Math.min(pct, 100) + "%";
+                progressLabel.textContent = label;
+                progressPctEl.textContent =
+                    Math.round(Math.min(pct, 100)) + "%";
+            }
+
+            let _lastGauge = 0;
+            function setGauge(mbps, force) {
+                const now = performance.now();
+                if (!force && now - _lastGauge < 250) return;
+                _lastGauge = now;
+                gaugeFill.style.strokeDashoffset =
+                    330 - Math.min(mbps / 200, 1) * 330;
+                gaugeFill.style.stroke =
+                    mbps > 100
+                        ? "var(--green)"
+                        : mbps > 25
+                          ? "var(--accent)"
+                          : mbps > 5
+                            ? "var(--orange)"
+                            : "var(--red)";
+                gaugeValue.textContent =
+                    mbps >= 100 ? Math.round(mbps) : mbps.toFixed(1);
+            }
+
+            function log(msg, val) {
+                const ts = new Date().toTimeString().slice(0, 8);
+                const el = document.createElement("div");
+                el.className = "log-line";
+                el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${msg}</span>${val ? `<span class="log-val">${val}</span>` : ""}`;
+                logBody.appendChild(el);
+                logBody.scrollTop = logBody.scrollHeight;
+            }
+
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+            // ── IP info ────────────────────────────────────────────────────────────────
+            async function fetchIpInfo() {
+                try {
+                    // Cloudflare's trace endpoint — always available, no API key, no CORS issues
+                    const text = await fetch(
+                        "https://cloudflare.com/cdn-cgi/trace",
+                    ).then((r) => r.text());
+                    const data = Object.fromEntries(
+                        text
+                            .trim()
+                            .split("\n")
+                            .map((l) => l.split("=")),
+                    );
+                    document.getElementById("infoIp").textContent =
+                        data.ip || "—";
+                    document.getElementById("infoLoc").textContent =
+                        data.loc || "—";
+                    // ISP lookup via worker (avoids third-party CORS issues)
+                    try {
+                        const isp = await fetch(
+                            "https://speedapi.pixelpeakmc.com/isp",
+                        ).then((r) => r.text());
+                        document.getElementById("infoIsp").textContent =
+                            isp || "—";
+                    } catch {
+                        document.getElementById("infoIsp").textContent = "—";
+                    }
+                } catch {
+                    document.getElementById("infoIp").textContent =
+                        "Unavailable";
+                }
+            }
+
+            // ── Ping ───────────────────────────────────────────────────────────────────
+            // Hit /ping on our Worker (returns empty 200 instantly).
+            // Warmup first to establish TCP+TLS, then measure 14 samples, trim outliers.
+            async function measurePing() {
+                const url = API + "/ping";
+                try {
+                    await fetch(url + "?w=1", { cache: "no-store" });
+                } catch {}
+                await sleep(80);
+
+                const times = [];
+                for (let i = 0; i < 14; i++) {
+                    const t0 = performance.now();
+                    try {
+                        await fetch(`${url}?i=${i}&r=${Math.random()}`, {
+                            cache: "no-store",
+                        });
+                        times.push(performance.now() - t0);
+                    } catch {}
+                    await sleep(30);
+                }
+                if (!times.length) return null;
+                times.sort((a, b) => a - b);
+                const trimmed = times.slice(1, -2);
+                return Math.round(
+                    trimmed.reduce((a, b) => a + b, 0) / trimmed.length,
+                );
+            }
+
+            // ── Download ───────────────────────────────────────────────────────────────
+            // GET /download?bytes=N — Worker streams N bytes of random data.
+            // 3 parallel streams, skip first 500ms (TCP slow-start), report P75.
+            async function measureDownload(onProgress) {
+                const BYTES = 25_000_000;
+                const STREAMS = 3;
+                const allSamples = [];
+
+                // Warmup
+                try {
+                    await fetch(`${API}/download?bytes=500000&w=1`, {
+                        cache: "no-store",
+                        signal: AbortSignal.timeout(6000),
+                    });
+                } catch {}
+
+                const doStream = async (idx) => {
+                    const url = `${API}/download?bytes=${BYTES}&s=${idx}&r=${Math.random()}`;
+                    const t0 = performance.now();
+                    let received = 0;
+                    try {
+                        const res = await fetch(url, {
+                            cache: "no-store",
+                            signal: AbortSignal.timeout(40000),
+                            headers: { "Accept-Encoding": "identity" },
+                        });
+                        const reader = res.body.getReader();
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            received += value.length;
+                            const elapsed = (performance.now() - t0) / 1000;
+                            if (elapsed > 0.5 && received > 65536) {
+                                const mbps = (received * 8) / (elapsed * 1e6);
+                                allSamples.push(mbps);
+                                onProgress(mbps);
+                            }
+                        }
+                    } catch {}
+                };
+
+                await Promise.all(
+                    Array.from({ length: STREAMS }, (_, i) => doStream(i)),
+                );
+                if (!allSamples.length) return 0;
+                allSamples.sort((a, b) => a - b);
+                return allSamples[Math.floor(allSamples.length * 0.75)];
+            }
+
+            // ── Upload ─────────────────────────────────────────────────────────────────
+            // POST /upload — Worker reads and discards the body, returns 200.
+            // 3 parallel XHR streams, skip first 300ms, report P75.
+            async function measureUpload(onProgress) {
+                const SIZE = 6 * 1024 * 1024;
+                const STREAMS = 3;
+
+                const buf = new Uint8Array(SIZE);
+                for (let i = 0; i < SIZE; i += 65536)
+                    crypto.getRandomValues(
+                        buf.subarray(i, Math.min(i + 65536, SIZE)),
+                    );
+                const blob = new Blob([buf], {
+                    type: "application/octet-stream",
+                });
+
+                // Warmup
+                await new Promise((resolve) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open("POST", `${API}/upload?w=1`);
+                    xhr.onload = xhr.onerror = xhr.ontimeout = resolve;
+                    xhr.timeout = 6000;
+                    xhr.send(new Blob([buf.subarray(0, 128 * 1024)]));
+                });
+
+                const allSamples = [];
+
+                const doUpload = (idx) =>
+                    new Promise((resolve) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open(
+                            "POST",
+                            `${API}/upload?s=${idx}&r=${Math.random()}`,
+                        );
+                        xhr.setRequestHeader(
+                            "Content-Type",
+                            "application/octet-stream",
+                        );
+                        let t0 = null;
+                        xhr.upload.onprogress = (e) => {
+                            if (t0 === null && e.loaded > 0)
+                                t0 = performance.now();
+                            if (!t0) return;
+                            const elapsed = (performance.now() - t0) / 1000;
+                            if (elapsed < 0.3 || e.loaded < 32768) return;
+                            const mbps = (e.loaded * 8) / (elapsed * 1e6);
+                            allSamples.push(mbps);
+                            onProgress(mbps);
+                        };
+                        xhr.onload = xhr.onerror = xhr.ontimeout = resolve;
+                        xhr.timeout = 35000;
+                        xhr.send(blob);
+                    });
+
+                await Promise.all(
+                    Array.from({ length: STREAMS }, (_, i) => doUpload(i)),
+                );
+                if (!allSamples.length) return 0;
+                allSamples.sort((a, b) => a - b);
+                return allSamples[Math.floor(allSamples.length * 0.75)];
+            }
+
+            // ── Main ───────────────────────────────────────────────────────────────────
+            async function runTest() {
+                if (running) return;
+                running = true;
+
+                logBody.innerHTML = "";
+                logWrap.classList.add("visible");
+                progressWrap.classList.add("visible");
+                gaugeWrap.classList.add("testing");
+                btnStart.disabled = true;
+                btnLabel.textContent = "Testing…";
+                gaugeFill.style.strokeDashoffset = 330;
+                gaugeValue.textContent = "—";
+                gaugeLabel.textContent = "Starting";
+                [cardPing, cardDown, cardUp].forEach(
+                    (c) => (c.className = "stat-card"),
+                );
+                ["valPing", "valDown", "valUp"].forEach((id) => {
+                    const el = document.getElementById(id);
+                    el.textContent = "—";
+                    el.className = "stat-value";
+                    el.style.color = "";
+                });
+
+                try {
+                    setProgress(3, "Detecting location…");
+                    await fetchIpInfo();
+
+                    // Ping
+                    setProgress(10, "Measuring latency…");
+                    gaugeLabel.textContent = "Ping";
+                    cardPing.classList.add("active");
+                    log("Measuring latency…");
+                    const ping = await measurePing();
+                    setProgress(22, "Latency done.");
+                    const pingEl = document.getElementById("valPing");
+                    pingEl.textContent = ping ?? "?";
+                    if (ping !== null) {
+                        if (ping < 25) pingEl.classList.add("green");
+                        else if (ping > 80)
+                            pingEl.style.color = "var(--orange)";
+                    }
+                    cardPing.classList.remove("active");
+                    cardPing.classList.add("done");
+                    log("Latency complete", ping !== null ? `${ping} ms` : "?");
+                    await sleep(150);
+
+                    // Download
+                    gaugeLabel.textContent = "Download";
+                    cardDown.classList.add("active");
+                    log("Downloading… (3 parallel streams, 25 MB each)");
+                    let dlPct = 22;
+                    const download = await measureDownload((mbps) => {
+                        dlPct = Math.min(dlPct + 0.3, 63);
+                        setProgress(
+                            dlPct,
+                            `Downloading… ${mbps.toFixed(1)} Mbps`,
+                        );
+                        setGauge(mbps);
+                    });
+                    setProgress(65, "Download complete.");
+                    setGauge(download, true);
+                    const downEl = document.getElementById("valDown");
+                    downEl.textContent =
+                        download >= 100
+                            ? Math.round(download)
+                            : download.toFixed(1);
+                    if (download > 20) downEl.classList.add("green");
+                    cardDown.classList.remove("active");
+                    cardDown.classList.add("done");
+                    log("Download complete", `${download.toFixed(1)} Mbps`);
+                    await sleep(150);
+
+                    // Upload
+                    gaugeLabel.textContent = "Upload";
+                    cardUp.classList.add("active");
+                    gaugeFill.style.strokeDashoffset = 330;
+                    gaugeValue.textContent = "—";
+                    log("Uploading… (3 parallel streams, 6 MB each)");
+                    let ulPct = 65;
+                    const upload = await measureUpload((mbps) => {
+                        ulPct = Math.min(ulPct + 0.25, 98);
+                        setProgress(
+                            ulPct,
+                            `Uploading… ${mbps.toFixed(1)} Mbps`,
+                        );
+                        setGauge(mbps);
+                    });
+                    setProgress(100, "All done!");
+                    setGauge(upload, true);
+                    const upEl = document.getElementById("valUp");
+                    upEl.textContent =
+                        upload >= 100 ? Math.round(upload) : upload.toFixed(1);
+                    if (upload > 5) upEl.classList.add("green");
+                    cardUp.classList.remove("active");
+                    cardUp.classList.add("done");
+                    log("Upload complete", `${upload.toFixed(1)} Mbps`);
+
+                    gaugeLabel.textContent = "Complete ✓";
+                    log("─── Test finished ───");
+                    await sleep(800);
+                    setGauge(download, true);
+                    gaugeValue.textContent =
+                        download >= 100
+                            ? Math.round(download)
+                            : download.toFixed(1);
+                } catch (err) {
+                    gaugeLabel.textContent = "Error";
+                    log("Error: " + err.message);
+                    console.error(err);
+                }
+
+                gaugeWrap.classList.remove("testing");
+                btnStart.disabled = false;
+                btnLabel.textContent = "Run Again";
+                running = false;
+            }
+
+            fetchIpInfo();
+        </script>
+    </body>
 </html>
