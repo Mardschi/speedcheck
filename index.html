@@ -647,8 +647,8 @@
 
         <script>
             let running = false;
-
-            const API = "https://speedapi.pixelpeakmc.com";
+            const WS_URL = "wss://speedapi.pixelpeakmc.com/ws";
+            const ISP_URL = "https://speedapi.pixelpeakmc.com/isp";
 
             const gaugeFill = document.getElementById("gaugeFill");
             const gaugeValue = document.getElementById("gaugeValue");
@@ -658,8 +658,8 @@
             const btnLabel = document.getElementById("btnLabel");
             const progressWrap = document.getElementById("progressWrap");
             const progressFill = document.getElementById("progressFill");
-            const progressLabel = document.getElementById("progressLabel");
-            const progressPctEl = document.getElementById("progressPct");
+            const progressLbl = document.getElementById("progressLabel");
+            const progressPct = document.getElementById("progressPct");
             const logWrap = document.getElementById("logWrap");
             const logBody = document.getElementById("logBody");
             const cardPing = document.getElementById("cardPing");
@@ -668,9 +668,8 @@
 
             function setProgress(pct, label) {
                 progressFill.style.width = Math.min(pct, 100) + "%";
-                progressLabel.textContent = label;
-                progressPctEl.textContent =
-                    Math.round(Math.min(pct, 100)) + "%";
+                progressLbl.textContent = label;
+                progressPct.textContent = Math.round(Math.min(pct, 100)) + "%";
             }
 
             let _lastGauge = 0;
@@ -703,10 +702,25 @@
 
             const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+            // ── WebSocket helper ───────────────────────────────────────────────────────
+            // Opens a WS connection and returns it once ready.
+            function openWS() {
+                return new Promise((resolve, reject) => {
+                    const ws = new WebSocket(WS_URL);
+                    ws.binaryType = "arraybuffer";
+                    ws.onopen = () => resolve(ws);
+                    ws.onerror = () =>
+                        reject(new Error("WebSocket connection failed"));
+                    setTimeout(
+                        () => reject(new Error("WebSocket timeout")),
+                        8000,
+                    );
+                });
+            }
+
             // ── IP info ────────────────────────────────────────────────────────────────
             async function fetchIpInfo() {
                 try {
-                    // Cloudflare's trace endpoint — always available, no API key, no CORS issues
                     const text = await fetch(
                         "https://cloudflare.com/cdn-cgi/trace",
                     ).then((r) => r.text());
@@ -720,150 +734,143 @@
                         data.ip || "—";
                     document.getElementById("infoLoc").textContent =
                         data.loc || "—";
-                    // ISP lookup via worker (avoids third-party CORS issues)
-                    try {
-                        const isp = await fetch(
-                            "https://speedapi.pixelpeakmc.com/isp",
-                        ).then((r) => r.text());
-                        document.getElementById("infoIsp").textContent =
-                            isp || "—";
-                    } catch {
-                        document.getElementById("infoIsp").textContent = "—";
-                    }
                 } catch {
                     document.getElementById("infoIp").textContent =
                         "Unavailable";
                 }
+                try {
+                    const isp = await fetch(ISP_URL).then((r) => r.text());
+                    document.getElementById("infoIsp").textContent = isp || "—";
+                } catch {}
             }
 
             // ── Ping ───────────────────────────────────────────────────────────────────
-            // Hit /ping on our Worker (returns empty 200 instantly).
-            // Warmup first to establish TCP+TLS, then measure 14 samples, trim outliers.
-            async function measurePing() {
-                const url = API + "/ping";
-                try {
-                    await fetch(url + "?w=1", { cache: "no-store" });
-                } catch {}
-                await sleep(80);
-
+            async function measurePing(ws) {
                 const times = [];
-                for (let i = 0; i < 14; i++) {
-                    const t0 = performance.now();
-                    try {
-                        await fetch(`${url}?i=${i}&r=${Math.random()}`, {
-                            cache: "no-store",
-                        });
-                        times.push(performance.now() - t0);
-                    } catch {}
-                    await sleep(30);
+                for (let i = 0; i < 20; i++) {
+                    await new Promise((resolve) => {
+                        const t0 = performance.now();
+                        const onMsg = (evt) => {
+                            if (evt.data === "pong") {
+                                ws.removeEventListener("message", onMsg);
+                                times.push(performance.now() - t0);
+                                resolve();
+                            }
+                        };
+                        ws.addEventListener("message", onMsg);
+                        ws.send("ping");
+                    });
+                    await sleep(20);
                 }
-                if (!times.length) return null;
                 times.sort((a, b) => a - b);
-                const trimmed = times.slice(1, -2);
+                const trimmed = times.slice(2, -3); // drop 2 fastest, 3 slowest
                 return Math.round(
                     trimmed.reduce((a, b) => a + b, 0) / trimmed.length,
                 );
             }
 
             // ── Download ───────────────────────────────────────────────────────────────
-            // GET /download?bytes=N — Worker streams N bytes of random data.
-            // 3 parallel streams, skip first 500ms (TCP slow-start), report P75.
-            async function measureDownload(onProgress) {
-                // Single large stream — avoids Chrome's per-host connection queue.
-                // One connection at full speed beats 3 connections waiting to be scheduled.
-                const BYTES = 60_000_000; // 60MB in one stream
-                const allSamples = [];
+            // Send "download N" → server streams N bytes → sends "done"
+            // We count bytes received and compute Mbps in real time.
+            async function measureDownload(ws, onProgress) {
+                const BYTES = 80_000_000; // 80MB
+                return new Promise((resolve) => {
+                    let received = 0;
+                    let t0 = null;
+                    const samples = [];
 
-                // Warmup: small fetch to establish TCP+TLS
-                try {
-                    await fetch(`${API}/download?bytes=200000&w=1`, {
-                        cache: "no-store",
-                        signal: AbortSignal.timeout(6000),
-                        headers: { "Accept-Encoding": "identity" },
-                    });
-                } catch {}
-
-                const url = `${API}/download?bytes=${BYTES}&r=${Math.random()}`;
-                const t0 = performance.now();
-                let received = 0;
-                try {
-                    const res = await fetch(url, {
-                        cache: "no-store",
-                        signal: AbortSignal.timeout(60000),
-                        headers: { "Accept-Encoding": "identity" },
-                    });
-                    const reader = res.body.getReader();
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        received += value.length;
-                        const elapsed = (performance.now() - t0) / 1000;
-                        if (elapsed > 0.5 && received > 131072) {
-                            // skip first 500ms ramp
-                            const mbps = (received * 8) / (elapsed * 1e6);
-                            allSamples.push(mbps);
-                            onProgress(mbps);
+                    const onMsg = (evt) => {
+                        if (
+                            typeof evt.data === "string" &&
+                            evt.data === "done"
+                        ) {
+                            ws.removeEventListener("message", onMsg);
+                            if (!samples.length) {
+                                resolve(0);
+                                return;
+                            }
+                            samples.sort((a, b) => a - b);
+                            resolve(samples[Math.floor(samples.length * 0.75)]);
+                            return;
                         }
-                    }
-                } catch {}
+                        if (evt.data instanceof ArrayBuffer) {
+                            if (t0 === null) t0 = performance.now();
+                            received += evt.data.byteLength;
+                            const elapsed = (performance.now() - t0) / 1000;
+                            if (elapsed > 0.5) {
+                                // skip first 500ms ramp
+                                const mbps = (received * 8) / (elapsed * 1e6);
+                                samples.push(mbps);
+                                onProgress(mbps);
+                            }
+                        }
+                    };
 
-                if (!allSamples.length) return 0;
-                allSamples.sort((a, b) => a - b);
-                return allSamples[Math.floor(allSamples.length * 0.75)]; // P75
+                    ws.addEventListener("message", onMsg);
+                    ws.send(`download ${BYTES}`);
+                });
             }
 
             // ── Upload ─────────────────────────────────────────────────────────────────
-            // POST /upload — Worker reads and discards the body, returns 200.
-            // 3 parallel XHR streams, skip first 300ms, report P75.
-            async function measureUpload(onProgress) {
-                // Single XHR stream — avoids connection queue contention.
-                // 12MB upload gives enough data for stable measurement.
-                const SIZE = 12 * 1024 * 1024;
-                const buf = new Uint8Array(SIZE);
-                for (let i = 0; i < SIZE; i += 65536)
-                    crypto.getRandomValues(
-                        buf.subarray(i, Math.min(i + 65536, SIZE)),
-                    );
-                const blob = new Blob([buf], {
-                    type: "application/octet-stream",
-                });
+            // Send binary chunks to server, server discards them.
+            // We measure how fast we can push bytes into the WS send buffer.
+            async function measureUpload(ws, onProgress) {
+                const TOTAL = 16 * 1024 * 1024; // 16MB total
+                const CHUNK = 64 * 1024; // 64KB per send
 
-                const allSamples = [];
+                // Pre-generate random buffer
+                const buf = new Uint8Array(CHUNK);
+                crypto.getRandomValues(buf);
+
+                let sent = 0;
+                let t0 = null;
+                const samples = [];
 
                 return new Promise((resolve) => {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open("POST", `${API}/upload?r=${Math.random()}`);
-                    xhr.setRequestHeader(
-                        "Content-Type",
-                        "application/octet-stream",
-                    );
-                    let t0 = null;
-                    xhr.upload.onprogress = (e) => {
-                        if (t0 === null && e.loaded > 0) t0 = performance.now();
-                        if (!t0) return;
-                        const elapsed = (performance.now() - t0) / 1000;
-                        if (elapsed < 0.3 || e.loaded < 65536) return; // skip TCP slow-start
-                        const mbps = (e.loaded * 8) / (elapsed * 1e6);
-                        allSamples.push(mbps);
-                        onProgress(mbps);
-                    };
-                    xhr.onload =
-                        xhr.onerror =
-                        xhr.ontimeout =
-                            () => {
-                                if (!allSamples.length) {
-                                    resolve(0);
-                                    return;
+                    // Send chunks in a loop, yielding each iteration so the browser
+                    // can flush the socket buffer between sends
+                    const sendNext = () => {
+                        if (sent >= TOTAL) {
+                            ws.send("done " + sent);
+                            // Wait for echo back to confirm server received
+                            const onDone = (evt) => {
+                                if (
+                                    typeof evt.data === "string" &&
+                                    evt.data.startsWith("done ")
+                                ) {
+                                    ws.removeEventListener("message", onDone);
+                                    if (!samples.length) {
+                                        resolve(0);
+                                        return;
+                                    }
+                                    samples.sort((a, b) => a - b);
+                                    resolve(
+                                        samples[
+                                            Math.floor(samples.length * 0.75)
+                                        ],
+                                    );
                                 }
-                                allSamples.sort((a, b) => a - b);
-                                resolve(
-                                    allSamples[
-                                        Math.floor(allSamples.length * 0.75)
-                                    ],
-                                );
                             };
-                    xhr.timeout = 40000;
-                    xhr.send(blob);
+                            ws.addEventListener("message", onDone);
+                            return;
+                        }
+
+                        if (t0 === null) t0 = performance.now();
+                        ws.send(buf);
+                        sent += CHUNK;
+
+                        const elapsed = (performance.now() - t0) / 1000;
+                        if (elapsed > 0.3 && sent > 65536) {
+                            const mbps = (sent * 8) / (elapsed * 1e6);
+                            samples.push(mbps);
+                            onProgress(mbps);
+                        }
+
+                        // Use setTimeout(0) to yield — lets the TCP stack flush
+                        setTimeout(sendNext, 0);
+                    };
+
+                    sendNext();
                 });
             }
 
@@ -891,36 +898,39 @@
                     el.style.color = "";
                 });
 
+                let ws = null;
                 try {
                     setProgress(3, "Detecting location…");
                     await fetchIpInfo();
 
+                    setProgress(8, "Connecting…");
+                    log("Opening WebSocket connection…");
+                    ws = await openWS();
+                    log("Connected to speedapi.pixelpeakmc.com");
+
                     // Ping
-                    setProgress(10, "Measuring latency…");
+                    setProgress(12, "Measuring latency…");
                     gaugeLabel.textContent = "Ping";
                     cardPing.classList.add("active");
-                    log("Measuring latency…");
-                    const ping = await measurePing();
+                    log("Measuring latency (20 pings)…");
+                    const ping = await measurePing(ws);
                     setProgress(22, "Latency done.");
                     const pingEl = document.getElementById("valPing");
-                    pingEl.textContent = ping ?? "?";
-                    if (ping !== null) {
-                        if (ping < 25) pingEl.classList.add("green");
-                        else if (ping > 80)
-                            pingEl.style.color = "var(--orange)";
-                    }
+                    pingEl.textContent = ping;
+                    if (ping < 25) pingEl.classList.add("green");
+                    else if (ping > 80) pingEl.style.color = "var(--orange)";
                     cardPing.classList.remove("active");
                     cardPing.classList.add("done");
-                    log("Latency complete", ping !== null ? `${ping} ms` : "?");
-                    await sleep(150);
+                    log("Latency complete", `${ping} ms`);
+                    await sleep(100);
 
                     // Download
                     gaugeLabel.textContent = "Download";
                     cardDown.classList.add("active");
-                    log("Downloading… (60 MB stream)");
+                    log("Downloading 80 MB via WebSocket…");
                     let dlPct = 22;
-                    const download = await measureDownload((mbps) => {
-                        dlPct = Math.min(dlPct + 0.3, 63);
+                    const download = await measureDownload(ws, (mbps) => {
+                        dlPct = Math.min(dlPct + 0.4, 63);
                         setProgress(
                             dlPct,
                             `Downloading… ${mbps.toFixed(1)} Mbps`,
@@ -938,17 +948,17 @@
                     cardDown.classList.remove("active");
                     cardDown.classList.add("done");
                     log("Download complete", `${download.toFixed(1)} Mbps`);
-                    await sleep(150);
+                    await sleep(100);
 
                     // Upload
                     gaugeLabel.textContent = "Upload";
                     cardUp.classList.add("active");
                     gaugeFill.style.strokeDashoffset = 330;
                     gaugeValue.textContent = "—";
-                    log("Uploading… (12 MB stream)");
+                    log("Uploading 16 MB via WebSocket…");
                     let ulPct = 65;
-                    const upload = await measureUpload((mbps) => {
-                        ulPct = Math.min(ulPct + 0.25, 98);
+                    const upload = await measureUpload(ws, (mbps) => {
+                        ulPct = Math.min(ulPct + 0.3, 98);
                         setProgress(
                             ulPct,
                             `Uploading… ${mbps.toFixed(1)} Mbps`,
@@ -977,6 +987,8 @@
                     gaugeLabel.textContent = "Error";
                     log("Error: " + err.message);
                     console.error(err);
+                } finally {
+                    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
                 }
 
                 gaugeWrap.classList.remove("testing");
