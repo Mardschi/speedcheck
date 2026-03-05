@@ -812,13 +812,15 @@
             }
 
             // ── Upload ─────────────────────────────────────────────────────────────────
-            // Send binary chunks to server, server discards them.
-            // We measure how fast we can push bytes into the WS send buffer.
+            // Key insight: ws.send() is synchronous into a browser buffer — it returns
+            // immediately regardless of network speed. To get real throughput we MUST
+            // wait for ws.bufferedAmount to drain before sending the next chunk.
+            // This way our elapsed time reflects actual wire speed, not buffer fill speed.
             async function measureUpload(ws, onProgress) {
                 const TOTAL = 16 * 1024 * 1024; // 16MB total
-                const CHUNK = 64 * 1024; // 64KB per send
+                const CHUNK = 64 * 1024; // 64KB chunks
+                const MAX_BUF = 128 * 1024; // wait if buffer exceeds 128KB
 
-                // Pre-generate random buffer
                 const buf = new Uint8Array(CHUNK);
                 crypto.getRandomValues(buf);
 
@@ -826,51 +828,56 @@
                 let t0 = null;
                 const samples = [];
 
-                return new Promise((resolve) => {
-                    // Send chunks in a loop, yielding each iteration so the browser
-                    // can flush the socket buffer between sends
-                    const sendNext = () => {
-                        if (sent >= TOTAL) {
-                            ws.send("done " + sent);
-                            // Wait for echo back to confirm server received
-                            const onDone = (evt) => {
-                                if (
-                                    typeof evt.data === "string" &&
-                                    evt.data.startsWith("done ")
-                                ) {
-                                    ws.removeEventListener("message", onDone);
-                                    if (!samples.length) {
-                                        resolve(0);
-                                        return;
-                                    }
-                                    samples.sort((a, b) => a - b);
-                                    resolve(
-                                        samples[
-                                            Math.floor(samples.length * 0.75)
-                                        ],
-                                    );
-                                }
-                            };
-                            ws.addEventListener("message", onDone);
+                // Wait until ws.bufferedAmount falls below threshold
+                const waitForDrain = () =>
+                    new Promise((resolve) => {
+                        if (ws.bufferedAmount <= MAX_BUF) {
+                            resolve();
                             return;
                         }
+                        const check = () => {
+                            if (ws.bufferedAmount <= MAX_BUF) resolve();
+                            else setTimeout(check, 4);
+                        };
+                        setTimeout(check, 4);
+                    });
+
+                return new Promise(async (resolve) => {
+                    while (sent < TOTAL) {
+                        await waitForDrain(); // block until network has actually consumed previous chunk
 
                         if (t0 === null) t0 = performance.now();
                         ws.send(buf);
                         sent += CHUNK;
 
                         const elapsed = (performance.now() - t0) / 1000;
-                        if (elapsed > 0.3 && sent > 65536) {
+                        if (elapsed > 0.4 && sent > 131072) {
+                            // skip first 400ms ramp
                             const mbps = (sent * 8) / (elapsed * 1e6);
                             samples.push(mbps);
                             onProgress(mbps);
                         }
+                    }
 
-                        // Use setTimeout(0) to yield — lets the TCP stack flush
-                        setTimeout(sendNext, 0);
+                    // Wait for final drain before signalling done
+                    await waitForDrain();
+                    ws.send("done " + sent);
+
+                    const onDone = (evt) => {
+                        if (
+                            typeof evt.data === "string" &&
+                            evt.data.startsWith("done ")
+                        ) {
+                            ws.removeEventListener("message", onDone);
+                            if (!samples.length) {
+                                resolve(0);
+                                return;
+                            }
+                            samples.sort((a, b) => a - b);
+                            resolve(samples[Math.floor(samples.length * 0.75)]);
+                        }
                     };
-
-                    sendNext();
+                    ws.addEventListener("message", onDone);
                 });
             }
 
