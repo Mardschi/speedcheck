@@ -484,6 +484,102 @@
                 color: var(--text);
             }
 
+            /* Ratings panel */
+            .ratings-wrap {
+                display: none;
+                width: 100%;
+                max-width: 520px;
+                margin-bottom: 28px;
+            }
+            .ratings-wrap.visible {
+                display: block;
+            }
+
+            .ratings-title {
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 12px;
+            }
+
+            .ratings-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+
+            .rating-card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 12px 14px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                animation: fadeIn 0.4s ease both;
+            }
+
+            .rating-icon {
+                font-size: 1.4rem;
+                flex-shrink: 0;
+                line-height: 1;
+            }
+
+            .rating-info {
+                flex: 1;
+                min-width: 0;
+            }
+            .rating-name {
+                font-size: 11px;
+                color: var(--muted);
+                letter-spacing: 0.05em;
+                margin-bottom: 3px;
+            }
+            .rating-label {
+                font-family: "Syne", sans-serif;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            .rating-label.poor {
+                color: var(--red);
+            }
+            .rating-label.okay {
+                color: var(--orange);
+            }
+            .rating-label.good {
+                color: var(--accent);
+            }
+            .rating-label.great {
+                color: var(--green);
+            }
+            .rating-label.perfect {
+                color: var(--green);
+            }
+
+            .rating-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                flex-shrink: 0;
+            }
+            .rating-dot.poor {
+                background: var(--red);
+            }
+            .rating-dot.okay {
+                background: var(--orange);
+            }
+            .rating-dot.good {
+                background: var(--accent);
+            }
+            .rating-dot.great {
+                background: var(--green);
+            }
+            .rating-dot.perfect {
+                background: var(--green);
+                box-shadow: 0 0 6px var(--green);
+            }
+
             footer {
                 margin-top: 40px;
                 color: var(--muted);
@@ -597,6 +693,12 @@
                     <div class="stat-value" id="valUp">—</div>
                     <div class="stat-sub">Mbps</div>
                 </div>
+            </div>
+
+            <!-- Usage ratings — shown after test completes -->
+            <div class="ratings-wrap" id="ratingsWrap">
+                <div class="ratings-title">What you can do</div>
+                <div class="ratings-grid" id="ratingsGrid"></div>
             </div>
 
             <div class="progress-wrap" id="progressWrap">
@@ -898,6 +1000,9 @@
                 [cardPing, cardDown, cardUp].forEach(
                     (c) => (c.className = "stat-card"),
                 );
+                document
+                    .getElementById("ratingsWrap")
+                    .classList.remove("visible");
                 ["valPing", "valDown", "valUp"].forEach((id) => {
                     const el = document.getElementById(id);
                     el.textContent = "—";
@@ -913,7 +1018,7 @@
                     setProgress(8, "Connecting…");
                     log("Opening WebSocket connection…");
                     ws = await openWS();
-                    log("Connected to speedapi.pixelpeakmc.com");
+                    log("Connected to speedapi.pixelpeak.org");
 
                     // Ping
                     setProgress(12, "Measuring latency…");
@@ -984,6 +1089,7 @@
 
                     gaugeLabel.textContent = "Complete ✓";
                     log("─── Test finished ───");
+                    showRatings(download, upload, ping);
                     await sleep(800);
                     setGauge(download, true);
                     gaugeValue.textContent =
@@ -1005,6 +1111,339 @@
             }
 
             fetchIpInfo();
+
+            // ── Usage ratings ──────────────────────────────────────────────────────────
+            const ACTIVITIES = [
+                {
+                    name: "HD Streaming",
+                    icon: "📺",
+                    // Netflix HD = 5 Mbps, 4K = 25 Mbps
+                    tiers: [
+                        {
+                            min: 0,
+                            max: 3,
+                            label: "Poor",
+                            cls: "poor",
+                            note: "SD only, may buffer",
+                        },
+                        {
+                            min: 3,
+                            max: 8,
+                            label: "Okay",
+                            cls: "okay",
+                            note: "HD on 1 screen",
+                        },
+                        {
+                            min: 8,
+                            max: 25,
+                            label: "Good",
+                            cls: "good",
+                            note: "HD on multiple screens",
+                        },
+                        {
+                            min: 25,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "4K on multiple screens",
+                        },
+                    ],
+                },
+                {
+                    name: "Video Calls",
+                    icon: "📹",
+                    // Zoom HD = 3 Mbps, 1080p = 8 Mbps
+                    tiers: [
+                        {
+                            min: 0,
+                            max: 1,
+                            label: "Poor",
+                            cls: "poor",
+                            note: "Audio only recommended",
+                        },
+                        {
+                            min: 1,
+                            max: 4,
+                            label: "Okay",
+                            cls: "okay",
+                            note: "SD video calls",
+                        },
+                        {
+                            min: 4,
+                            max: 10,
+                            label: "Good",
+                            cls: "good",
+                            note: "HD video calls",
+                        },
+                        {
+                            min: 10,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "1080p calls, no issues",
+                        },
+                    ],
+                },
+                {
+                    name: "Online Gaming",
+                    icon: "🎮",
+                    // Gaming needs low ping + ~3 Mbps, not much bandwidth
+                    pingBased: true,
+                    tiers: [
+                        {
+                            maxPing: 999,
+                            min: 0,
+                            max: 2,
+                            label: "Poor",
+                            cls: "poor",
+                            note: "Not enough bandwidth",
+                        },
+                        {
+                            maxPing: 150,
+                            min: 2,
+                            max: 999,
+                            label: "Okay",
+                            cls: "okay",
+                            note: "Playable, high latency",
+                        },
+                        {
+                            maxPing: 60,
+                            min: 2,
+                            max: 999,
+                            label: "Good",
+                            cls: "good",
+                            note: "Smooth gameplay",
+                        },
+                        {
+                            maxPing: 30,
+                            min: 2,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "Competitive ready",
+                        },
+                    ],
+                },
+                {
+                    name: "Game Downloads",
+                    icon: "⬇️",
+                    // Just raw download speed
+                    tiers: [
+                        {
+                            min: 0,
+                            max: 5,
+                            label: "Poor",
+                            cls: "poor",
+                            note: "Hours per game",
+                        },
+                        {
+                            min: 5,
+                            max: 25,
+                            label: "Okay",
+                            cls: "okay",
+                            note: "~30 min per 10 GB",
+                        },
+                        {
+                            min: 25,
+                            max: 100,
+                            label: "Good",
+                            cls: "good",
+                            note: "~10 min per 10 GB",
+                        },
+                        {
+                            min: 100,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "Minutes per game",
+                        },
+                    ],
+                },
+                {
+                    name: "Music Streaming",
+                    icon: "🎵",
+                    // Spotify max = 0.32 Mbps
+                    tiers: [
+                        {
+                            min: 0,
+                            max: 0.5,
+                            label: "Poor",
+                            cls: "poor",
+                            note: "May cut out",
+                        },
+                        {
+                            min: 0.5,
+                            max: 2,
+                            label: "Good",
+                            cls: "good",
+                            note: "Works fine",
+                        },
+                        {
+                            min: 2,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "Multiple streams, no issues",
+                        },
+                    ],
+                },
+                {
+                    name: "Smart Home / IoT",
+                    icon: "🏠",
+                    tiers: [
+                        {
+                            min: 0,
+                            max: 5,
+                            label: "Okay",
+                            cls: "okay",
+                            note: "Basic devices only",
+                        },
+                        {
+                            min: 5,
+                            max: 25,
+                            label: "Good",
+                            cls: "good",
+                            note: "Cameras + smart devices",
+                        },
+                        {
+                            min: 25,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "Everything at once",
+                        },
+                    ],
+                },
+                {
+                    name: "Remote Work",
+                    icon: "💼",
+                    // Upload matters here
+                    uploadBased: true,
+                    tiers: [
+                        {
+                            min: 0,
+                            max: 2,
+                            label: "Poor",
+                            cls: "poor",
+                            note: "Uploads struggle",
+                        },
+                        {
+                            min: 2,
+                            max: 5,
+                            label: "Okay",
+                            cls: "okay",
+                            note: "Basic work tasks",
+                        },
+                        {
+                            min: 5,
+                            max: 20,
+                            label: "Good",
+                            cls: "good",
+                            note: "Video calls + file sharing",
+                        },
+                        {
+                            min: 20,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "Large uploads, no waiting",
+                        },
+                    ],
+                },
+                {
+                    name: "Browsing & Social",
+                    icon: "🌐",
+                    tiers: [
+                        {
+                            min: 0,
+                            max: 1,
+                            label: "Poor",
+                            cls: "poor",
+                            note: "Slow page loads",
+                        },
+                        {
+                            min: 1,
+                            max: 5,
+                            label: "Okay",
+                            cls: "okay",
+                            note: "Usable",
+                        },
+                        {
+                            min: 5,
+                            max: 25,
+                            label: "Good",
+                            cls: "good",
+                            note: "Fast and responsive",
+                        },
+                        {
+                            min: 25,
+                            max: 999,
+                            label: "Perfect",
+                            cls: "perfect",
+                            note: "Instant everything",
+                        },
+                    ],
+                },
+            ];
+
+            function getRating(activity, downloadMbps, uploadMbps, pingMs) {
+                const speed = activity.uploadBased ? uploadMbps : downloadMbps;
+
+                if (activity.pingBased) {
+                    // Find best tier where ping AND speed both qualify
+                    const sorted = [...activity.tiers].sort(
+                        (a, b) => a.maxPing - b.maxPing,
+                    );
+                    for (const tier of sorted) {
+                        if (
+                            pingMs <= tier.maxPing &&
+                            speed >= tier.min &&
+                            speed < tier.max
+                        )
+                            return tier;
+                    }
+                    return activity.tiers[0];
+                }
+
+                // Find highest tier where speed qualifies
+                let best = activity.tiers[0];
+                for (const tier of activity.tiers) {
+                    if (speed >= tier.min && speed < tier.max) {
+                        best = tier;
+                        break;
+                    }
+                }
+                return best;
+            }
+
+            function showRatings(downloadMbps, uploadMbps, pingMs) {
+                const wrap = document.getElementById("ratingsWrap");
+                const grid = document.getElementById("ratingsGrid");
+                grid.innerHTML = "";
+
+                ACTIVITIES.forEach((activity, i) => {
+                    const rating = getRating(
+                        activity,
+                        downloadMbps,
+                        uploadMbps,
+                        pingMs,
+                    );
+                    const card = document.createElement("div");
+                    card.className = "rating-card";
+                    card.style.animationDelay = i * 60 + "ms";
+                    card.innerHTML = `
+      <div class="rating-icon">${activity.icon}</div>
+      <div class="rating-info">
+        <div class="rating-name">${activity.name}</div>
+        <div class="rating-label ${rating.cls}">${rating.label}</div>
+      </div>
+      <div class="rating-dot ${rating.cls}"></div>
+    `;
+                    grid.appendChild(card);
+                });
+
+                wrap.classList.add("visible");
+            }
         </script>
     </body>
 </html>
